@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PackLite — Huffman Text Compressor</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: #f3efe6; color: #1d1a16; }
+    header, main { max-width: 880px; margin: 0 auto; padding: 22px 18px; }
+    header { border-bottom: 2px solid #1d1a16; }
+    h1 { margin: 0 0 6px; font-size: 1.7rem; }
+    p { line-height: 1.45; }
+    .meta { margin: 0; color: #4a453d; }
+    section { background: #fff; border: 1px solid #ddd4c4; padding: 16px; margin-top: 16px; }
+    textarea { width: 100%; min-height: 140px; font: 15px/1.4 ui-monospace, monospace; padding: 10px; }
+    button, .file button { font: inherit; background: #1d1a16; color: #fff; border: 0; padding: 8px 12px; margin: 8px 8px 0 0; cursor: pointer; }
+    button.quiet { background: #6d6458; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .stats div { background: #f7f3eb; padding: 10px; }
+    .stats strong { display: block; font-size: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95rem; }
+    th, td { border: 1px solid #ddd4c4; padding: 5px 8px; text-align: left; }
+    th { background: #f7f3eb; }
+    .err { color: #8c2f24; }
+    @media (max-width: 700px) { .stats { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PackLite</h1>
+    <p class="meta">A Huffman compressor for notes and text files. DAA mini project by Karan Dixit.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Compress</h2>
+      <p>Paste notes or a message. Repeated words get the shortest codes, so the file shrinks. The codebook travels inside the file, which is why a very short message may not shrink.</p>
+      <textarea id="source">{{ sample }}</textarea>
+      <div>
+        <button onclick="loadSample()">Load sample notes</button>
+        <button onclick="runCompress()">Compress</button>
+        <button class="quiet" onclick="downloadFile()">Download .huf file</button>
+      </div>
+      <p id="message" class="err"></p>
+      <div class="stats" id="stats" hidden>
+        <div><strong id="sOriginal">0</strong> original bytes</div>
+        <div><strong id="sCompressed">0</strong> compressed bytes</div>
+        <div><strong id="sSaved">0%</strong> saved</div>
+        <div><strong id="sHeap">0</strong> heap operations</div>
+      </div>
+      <table id="codes" hidden>
+        <thead><tr><th>Character</th><th>Times seen</th><th>Huffman code</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Restore</h2>
+      <p>Open a .huf file from this tool. The program rebuilds the same tree from the stored frequencies and writes the original text back.</p>
+      <input id="huf" type="file" accept=".huf,application/octet-stream">
+      <button onclick="runRestore()">Restore text</button>
+      <textarea id="restored" readonly placeholder="Restored text appears here."></textarea>
+    </section>
+  </main>
+  <script>
+    const sample = {{ sample | tojson }};
+
+    function loadSample() {
+      document.getElementById("source").value = sample;
+      document.getElementById("message").textContent = "";
+    }
+
+    async function runCompress() {
+      const text = document.getElementById("source").value;
+      const message = document.getElementById("message");
+      message.textContent = "";
+      const response = await fetch("/compress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+      const data = await response.json();
+      if (!data.ok) {
+        message.textContent = data.error;
+        return;
+      }
+      document.getElementById("stats").hidden = false;
+      document.getElementById("sOriginal").textContent = data.original_bytes;
+      document.getElementById("sCompressed").textContent = data.compressed_bytes;
+      document.getElementById("sSaved").textContent = data.saved_percent + "%";
+      document.getElementById("sHeap").textContent = data.heap_operations;
+      const body = document.querySelector("#codes tbody");
+      body.innerHTML = "";
+      data.table.slice(0, 12).forEach((row) => {
+        const tr = document.createElement("tr");
+        const label = row.char === " " ? "space" : row.char === "\n" ? "newline" : row.char;
+        tr.innerHTML = `<td>${label}</td><td>${row.freq}</td><td>${row.code}</td>`;
+        body.appendChild(tr);
+      });
+      document.getElementById("codes").hidden = false;
+      window._lastBlob = data.file_base64;
+    }
+
+    function downloadFile() {
+      if (!window._lastBlob) {
+        document.getElementById("message").textContent = "Compress the text before downloading.";
+        return;
+      }
+      const bytes = Uint8Array.from(atob(window._lastBlob), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "notes.huf";
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function runRestore() {
+      const file = document.getElementById("huf").files[0];
+      const message = document.getElementById("message");
+      if (!file) {
+        message.textContent = "Choose a .huf file first.";
+        return;
+      }
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/decompress", { method: "POST", body: form });
+      const data = await response.json();
+      if (!data.ok) {
+        message.textContent = data.error;
+        return;
+      }
+      document.getElementById("restored").value = data.text;
+      message.textContent = "";
+    }
+  </script>
+</body>
+</html>
