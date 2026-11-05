@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PackLite — Huffman Text Compressor</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: #f3efe6; color: #1d1a16; }
+    header, main { max-width: 880px; margin: 0 auto; padding: 22px 18px; }
+    header { border-bottom: 2px solid #1d1a16; }
+    h1 { margin: 0 0 6px; font-size: 1.7rem; }
+    p { line-height: 1.45; }
+    .meta { margin: 0; color: #4a453d; }
+    section { background: #fff; border: 1px solid #ddd4c4; padding: 16px; margin-top: 16px; }
+    textarea { width: 100%; min-height: 140px; font: 15px/1.4 ui-monospace, monospace; padding: 10px; }
+    button { font: inherit; background: #1d1a16; color: #fff; border: 0; padding: 8px 12px; margin: 8px 8px 0 0; cursor: pointer; }
+    button.quiet { background: #6d6458; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+    .stats div { background: #f7f3eb; padding: 10px; }
+    .stats strong { display: block; font-size: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.95rem; }
+    th, td { border: 1px solid #ddd4c4; padding: 5px 8px; text-align: left; }
+    th { background: #f7f3eb; }
+    .err { color: #8c2f24; }
+    a { color: #1d1a16; }
+    @media (max-width: 700px) { .stats { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PackLite</h1>
+    <p class="meta">A Huffman compressor for notes and text files. DAA mini project by Karan Dixit. <a href="https://github.com/dixitk941/packlite-huffman">Source on GitHub</a>.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Compress</h2>
+      <p>Paste notes or a message. Repeated words get the shortest codes, so the file shrinks. The codebook travels inside the file, which is why a very short message may not shrink.</p>
+      <textarea id="source"></textarea>
+      <div>
+        <button type="button" id="load">Load sample notes</button>
+        <button type="button" id="compress">Compress</button>
+        <button type="button" class="quiet" id="download">Download .huf file</button>
+      </div>
+      <p id="message" class="err"></p>
+      <div class="stats" id="stats" hidden>
+        <div><strong id="sOriginal">0</strong> original bytes</div>
+        <div><strong id="sCompressed">0</strong> compressed bytes</div>
+        <div><strong id="sSaved">0%</strong> saved</div>
+        <div><strong id="sHeap">0</strong> heap operations</div>
+      </div>
+      <table id="codes" hidden>
+        <thead><tr><th>Character</th><th>Times seen</th><th>Huffman code</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Restore</h2>
+      <p>Open a .huf file from this tool. The program rebuilds the same tree from the stored frequencies and writes the original text back.</p>
+      <input id="huf" type="file" accept=".huf,application/octet-stream">
+      <button type="button" id="restore">Restore text</button>
+      <textarea id="restored" readonly placeholder="Restored text appears here."></textarea>
+    </section>
+  </main>
+  <script src="huffman.js"></script>
+  <script>
+    const lines = [
+      "Design and Analysis of Algorithms. Greedy method. Huffman coding.",
+      "A min-heap stores the character counts. The two smallest counts are merged.",
+      "Frequent characters receive short codes. Rare characters receive long codes."
+    ];
+    const sampleText = Array.from({ length: 12 }, () => lines.join("\n")).join("\n");
+    const source = document.getElementById("source");
+    source.value = sampleText;
+    let lastBlob = null;
+
+    document.getElementById("load").onclick = () => {
+      source.value = sampleText;
+      document.getElementById("message").textContent = "";
+    };
+    document.getElementById("compress").onclick = () => {
+      const message = document.getElementById("message");
+      message.textContent = "";
+      try {
+        const result = huffmanApi.compressText(source.value);
+        lastBlob = result.blob;
+        document.getElementById("stats").hidden = false;
+        document.getElementById("sOriginal").textContent = result.originalBytes;
+        document.getElementById("sCompressed").textContent = result.compressedBytes;
+        document.getElementById("sSaved").textContent = result.savedPercent + "%";
+        document.getElementById("sHeap").textContent = result.heapOperations;
+        const body = document.querySelector("#codes tbody");
+        body.innerHTML = "";
+        result.table.slice(0, 12).forEach((row) => {
+          const tr = document.createElement("tr");
+          const label = row.char === " " ? "space" : row.char === "\n" ? "newline" : row.char;
+          tr.innerHTML = `<td>${label}</td><td>${row.freq}</td><td>${row.code}</td>`;
+          body.appendChild(tr);
+        });
+        document.getElementById("codes").hidden = false;
+      } catch (err) {
+        message.textContent = err.message;
+      }
+    };
+    document.getElementById("download").onclick = () => {
+      if (!lastBlob) {
+        document.getElementById("message").textContent = "Compress the text before downloading.";
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([lastBlob]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "notes.huf";
+      link.click();
+      URL.revokeObjectURL(url);
+    };
+    document.getElementById("restore").onclick = async () => {
+      const file = document.getElementById("huf").files[0];
+      const message = document.getElementById("message");
+      if (!file) {
+        message.textContent = "Choose a .huf file first.";
+        return;
+      }
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        document.getElementById("restored").value = huffmanApi.decompressBytes(bytes);
+        message.textContent = "";
+      } catch (err) {
+        message.textContent = "Could not restore that file. Use a .huf file made by PackLite.";
+      }
+    };
+  </script>
+</body>
+</html>

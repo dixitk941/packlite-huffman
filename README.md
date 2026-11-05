@@ -15,4 +15,6 @@ python app.py
 
 Open http://127.0.0.1:5002/
 
+The same compressor is published at https://dixitk941.github.io/packlite-huffman/
+
 The written report is `PackLite_Huffman_Report.docx`.
